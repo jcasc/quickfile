@@ -1,5 +1,11 @@
 package main
 
+import (
+	"crypto/tls"
+	"encoding/base64"
+	"fmt"
+)
+
 const TLS_CERT = `
 Ci0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFcERDQ0Fvd0NDUUNlVDJj
 Sk9XL1dyakFOQmdrcWhraUc5dzBCQVFzRkFEQVVNUkl3RUFZRFZRUUtEQWx4CmRX
@@ -107,3 +113,19 @@ VmlhZzJLY2FPWXBGa29Bbjh0aG5FU0ZPbGdneQo3Z2o3WURGTEIvZm1aNGRLQnMr
 Z1NoUTk1V2NhSXhiSk1wWVBhVG9oSGRDSER5NCtLUlBGVXUxUEFCNHM5M3pSCm5U
 MlZaZ1pyNHYwU1dQRHY0VVRDaFJGRWJyYml2UTg9Ci0tLS0tRU5EIFBSSVZBVEUg
 S0VZLS0tLS0=`
+
+func getDummyCert() (tls.Certificate, error) {
+	cert_, err := base64.StdEncoding.DecodeString(TLS_CERT)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("error decoding cert: %v", err)
+	}
+	key_, err := base64.StdEncoding.DecodeString(TLS_KEY)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("error decoding key: %v", err)
+	}
+	cert, err := tls.X509KeyPair(cert_, key_)
+	if err != nil {
+		err = fmt.Errorf("error loading dummy keypar: %v", err)
+	}
+	return cert, err
+}

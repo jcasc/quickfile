@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -15,7 +14,7 @@ import (
 )
 
 func random_pw() string {
-	const glyphs = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-$"
+	const glyphs = "abcdefghijk-mnopqrstuvwxyzABCDEFGH-JKLMN-PQRSTUVWXYZ-123456789--"
 	const N = 32
 	buf := make([]byte, N)
 	if n, err := rand.Read(buf); err != nil || n != N {
@@ -64,18 +63,6 @@ func shutdown(srv *http.Server) {
 	}
 }
 
-func getDummyCert() (tls.Certificate, error) {
-	tls_cert, err := base64.StdEncoding.DecodeString(TLS_CERT)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("error decoding cert: %v", err)
-	}
-	tls_key, err := base64.StdEncoding.DecodeString(TLS_KEY)
-	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("error decoding key: %v", err)
-	}
-	return tls.X509KeyPair(tls_cert, tls_key)
-}
-
 func main() {
 
 	dir, addr, rnd_pw := get_params()
@@ -85,7 +72,7 @@ func main() {
 
 	cert, err := getDummyCert()
 	if err != nil {
-		log.Fatalf("error getting cert: %v", err)
+		log.Fatal(err)
 	}
 
 	fhandler := http.FileServer(http.Dir(dir))
