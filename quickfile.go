@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"log"
@@ -63,6 +64,18 @@ func shutdown(srv *http.Server) {
 	}
 }
 
+func getDummyCert() (tls.Certificate, error) {
+	tls_cert, err := base64.StdEncoding.DecodeString(TLS_CERT)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("error decoding cert: %v", err)
+	}
+	tls_key, err := base64.StdEncoding.DecodeString(TLS_KEY)
+	if err != nil {
+		return tls.Certificate{}, fmt.Errorf("error decoding key: %v", err)
+	}
+	return tls.X509KeyPair(tls_cert, tls_key)
+}
+
 func main() {
 
 	dir, addr, rnd_pw := get_params()
@@ -70,9 +83,9 @@ func main() {
 	sigint := make(chan os.Signal, 1)
 	signal.Notify(sigint, os.Interrupt)
 
-	cert, err := tls.X509KeyPair([]byte(TLS_CERT), []byte(TLS_KEY))
+	cert, err := getDummyCert()
 	if err != nil {
-		log.Fatalf("certificate error: %v", err)
+		log.Fatalf("error getting cert: %v", err)
 	}
 
 	fhandler := http.FileServer(http.Dir(dir))
