@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func random_pw() string {
+func randomPass() string {
 	const glyphs = "abcdefghijk-mnopqrstuvwxyzABCDEFGH-JKLMN-PQRSTUVWXYZ-123456789--"
 	const N = 32
 	buf := make([]byte, N)
@@ -26,7 +26,7 @@ func random_pw() string {
 	return string(buf)
 }
 
-func get_params() (string, string, string) {
+func getParams() (string, string) {
 
 	dir := flag.String("d", "", "The directory to be served")
 	port := flag.Int("p", 42777, "The port to be listened on")
@@ -43,10 +43,7 @@ func get_params() (string, string, string) {
 
 	addr := ":" + fmt.Sprint(*port)
 
-	rnd_pw := random_pw()
-	log.Printf("random Password: %v", rnd_pw)
-
-	return *dir, addr, rnd_pw
+	return *dir, addr
 }
 
 func serve(srv *http.Server, done chan bool) {
@@ -63,9 +60,28 @@ func shutdown(srv *http.Server) {
 	}
 }
 
+func fileHandler(dir string) http.HandlerFunc {
+	fhandler := http.FileServer(http.Dir(dir))
+	pass := randomPass()
+	log.Printf("served directory: %v", dir)
+	log.Printf("random pass: %v", pass)
+
+	// objects are poor man's closures
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		usr, pw, ok := r.BasicAuth()
+		log.Printf("%v %v %v", r.RemoteAddr, usr, r.RequestURI)
+		if ok && pw == pass {
+			fhandler.ServeHTTP(w, r)
+		} else {
+			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		}
+	})
+}
+
 func main() {
 
-	dir, addr, rnd_pw := get_params()
+	dir, addr := getParams()
 
 	sigint := make(chan os.Signal, 1)
 	signal.Notify(sigint, os.Interrupt)
@@ -75,19 +91,9 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fhandler := http.FileServer(http.Dir(dir))
 	srv := http.Server{
-		Addr: addr,
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			usr, pw, ok := r.BasicAuth()
-			log.Printf("%v %v %v", r.RemoteAddr, usr, r.RequestURI)
-			if ok && pw == rnd_pw {
-				fhandler.ServeHTTP(w, r)
-			} else {
-				w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			}
-		}),
+		Addr:    addr,
+		Handler: fileHandler(dir),
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		},
@@ -99,8 +105,8 @@ func main() {
 	select {
 	case <-sigint: // SIGINT received
 		shutdown(&srv)
-		<-join // wait for serve routine to finish
-	case <-join: // server returned on its own
-		shutdown(&srv) // might free some resources or handle error-state server somehow
+		<-join // wait for serving routine to finish
+	case <-join: // serving routine returned on its own
+		shutdown(&srv) // make absolutely sure error-state server is shut down
 	}
 }

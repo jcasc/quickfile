@@ -6,6 +6,12 @@ import (
 	"fmt"
 )
 
+/* -------------------------------------------------------------
+The following constants define a self-signed cert containing
+minimal subject information. This cert offers absolutely no
+authentication and only serves to enable TLS's encryption.
+------------------------------------------------------------- */
+
 const TLS_CERT = `
 Ci0tLS0tQkVHSU4gQ0VSVElGSUNBVEUtLS0tLQpNSUlFcERDQ0Fvd0NDUUNlVDJj
 Sk9XL1dyakFOQmdrcWhraUc5dzBCQVFzRkFEQVVNUkl3RUFZRFZRUUtEQWx4CmRX
@@ -114,18 +120,19 @@ Z1NoUTk1V2NhSXhiSk1wWVBhVG9oSGRDSER5NCtLUlBGVXUxUEFCNHM5M3pSCm5U
 MlZaZ1pyNHYwU1dQRHY0VVRDaFJGRWJyYml2UTg9Ci0tLS0tRU5EIFBSSVZBVEUg
 S0VZLS0tLS0=`
 
+// Loads the dummy cert defined by the above constants
 func getDummyCert() (tls.Certificate, error) {
 	cert_, err := base64.StdEncoding.DecodeString(TLS_CERT)
 	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("error decoding cert: %v", err)
+		return tls.Certificate{}, fmt.Errorf("decoding cert failed: %v", err)
 	}
 	key_, err := base64.StdEncoding.DecodeString(TLS_KEY)
 	if err != nil {
-		return tls.Certificate{}, fmt.Errorf("error decoding key: %v", err)
+		return tls.Certificate{}, fmt.Errorf("decoding key failed: %v", err)
 	}
 	cert, err := tls.X509KeyPair(cert_, key_)
 	if err != nil {
-		err = fmt.Errorf("error loading dummy keypar: %v", err)
+		err = fmt.Errorf("loading keypair failed: %v", err)
 	}
 	return cert, err
 }
