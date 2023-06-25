@@ -67,16 +67,21 @@ func fileHandler(dir string) http.HandlerFunc {
 	log.Printf("random pass: %v", pass)
 
 	// objects are poor man's closures
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 		usr, pw, ok := r.BasicAuth()
-		log.Printf("%v %v %v", r.RemoteAddr, usr, r.RequestURI)
-		if ok && pw == pass {
-			fhandler.ServeHTTP(w, r)
-		} else {
-			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+		if !ok {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			log.Printf("%v %v AUTH NOT OK", r.RemoteAddr, r.RequestURI)
+		} else if pw != pass {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			log.Printf("%v %v AUTH REJECT USER %v", r.RemoteAddr, r.RequestURI, usr)
+		} else {
+			fhandler.ServeHTTP(w, r)
+			log.Printf("%v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.RequestURI, usr)
 		}
-	})
+	}
+	return http.HandlerFunc(handler)
 }
 
 func main() {
