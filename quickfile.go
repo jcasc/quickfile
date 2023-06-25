@@ -40,9 +40,7 @@ func getParams() (string, string) {
 		os.Exit(1)
 	}
 
-	addr := ":" + fmt.Sprint(*port)
-
-	return *dir, addr
+	return *dir, fmt.Sprint(*port)
 }
 
 func serve(srv *http.Server, done chan bool) {
@@ -84,7 +82,7 @@ func fileHandler(dir, pass string) http.HandlerFunc {
 }
 
 func main() {
-	dir, addr := getParams()
+	dir, port := getParams()
 	pass := randomPass()
 	log.Printf("password: %v", pass)
 
@@ -111,7 +109,7 @@ func main() {
 	})
 
 	srv := http.Server{
-		Addr:    addr,
+		Addr:    ":" + port,
 		Handler: mux,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
