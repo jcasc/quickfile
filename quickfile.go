@@ -18,7 +18,7 @@ func randomPass() string {
 	const N = 32
 	buf := make([]byte, N)
 	if n, err := rand.Read(buf); err != nil || n != N {
-		log.Fatalf("RNG error: %v", err)
+		log.Fatalf("RNG error: %v", err) // should never happen
 	}
 	for i := 0; i < N; i++ {
 		buf[i] = glyphs[buf[i]%64]
@@ -27,7 +27,6 @@ func randomPass() string {
 }
 
 func getParams() (string, string) {
-
 	dir := flag.String("d", "", "The directory to be served")
 	port := flag.Int("p", 42777, "The port to be listened on")
 	flag.Parse()
@@ -60,49 +59,67 @@ func shutdown(srv *http.Server) {
 	}
 }
 
-func fileHandler(dir string) http.HandlerFunc {
+func fileHandler(dir, pass string) http.HandlerFunc {
 	fhandler := http.FileServer(http.Dir(dir))
-	pass := randomPass()
 	log.Printf("served directory: %v", dir)
-	log.Printf("random pass: %v", pass)
 
 	// objects are poor man's closures
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 		usr, pw, ok := r.BasicAuth()
-		if !ok {
+
+		if !(ok && pw == pass) {
+			if ok {
+				log.Printf("%v %v AUTH REJECT USER %v", r.RemoteAddr, r.URL, usr)
+			} else {
+				log.Printf("%v %v AUTH NOT OK", r.RemoteAddr, r.URL)
+			}
+			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			log.Printf("%v %v AUTH NOT OK", r.RemoteAddr, r.RequestURI)
-		} else if pw != pass {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			log.Printf("%v %v AUTH REJECT USER %v", r.RemoteAddr, r.RequestURI, usr)
 		} else {
+			log.Printf("%v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.URL, usr)
 			fhandler.ServeHTTP(w, r)
-			log.Printf("%v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.RequestURI, usr)
 		}
 	}
 	return http.HandlerFunc(handler)
 }
 
 func main() {
-
 	dir, addr := getParams()
-
-	sigint := make(chan os.Signal, 1)
-	signal.Notify(sigint, os.Interrupt)
+	pass := randomPass()
+	log.Printf("password: %v", pass)
 
 	cert, err := getDummyCert()
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	favicon, err := getFaviconReader()
+	if err != nil {
+		log.Print(err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("/", fileHandler(dir, pass))
+	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		if favicon == nil {
+			log.Printf("%v %v 404", r.RemoteAddr, r.URL)
+			http.NotFound(w, r)
+		} else {
+			log.Printf("%v %v", r.RemoteAddr, r.URL)
+			http.ServeContent(w, r, "", time.Time{}, favicon)
+		}
+	})
+
 	srv := http.Server{
 		Addr:    addr,
-		Handler: fileHandler(dir),
+		Handler: mux,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
 		},
 	}
+
+	sigint := make(chan os.Signal, 1)
+	signal.Notify(sigint, os.Interrupt)
 
 	join := make(chan bool, 1)
 	go serve(&srv, join)
