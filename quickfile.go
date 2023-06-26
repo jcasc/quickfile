@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const QUICKFILE_VERSION = "v0.2.1"
+
 func randomPass() string {
 	const glyphs = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$-"
 	const N = 32
@@ -35,6 +37,10 @@ type params struct {
 }
 
 func getParams() params {
+	if len(os.Args) >= 2 && os.Args[1] == "-v" || os.Args[1] == "--version" {
+		fmt.Printf("quickfile %v\n", QUICKFILE_VERSION)
+		os.Exit(0)
+	}
 	flag.Usage = func() {
 		fmt.Fprintln(os.Stderr, "Usage: quickfile [flags] directory")
 		flag.PrintDefaults()
