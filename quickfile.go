@@ -14,7 +14,7 @@ import (
 )
 
 func randomPass() string {
-	const glyphs = "abcdefghijk-mnopqrstuvwxyzABCDEFGH-JKLMN-PQRSTUVWXYZ-123456789--"
+	const glyphs = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$-"
 	const N = 32
 	buf := make([]byte, N)
 	if n, err := rand.Read(buf); err != nil || n != N {
@@ -26,21 +26,49 @@ func randomPass() string {
 	return string(buf)
 }
 
-func getParams() (string, string) {
-	dir := flag.String("d", "", "The directory to be served")
-	port := flag.Int("p", 42777, "The port to be listened on")
+type params struct {
+	dir  string
+	port int
+	cert string
+	key  string
+	// pass string
+}
+
+func getParams() params {
+	flag.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: quickfile [flags] directory")
+		flag.PrintDefaults()
+	}
+	port := flag.Int("p", 42777, "The port to be listened on.")
+	cert := flag.String("cert", "", "Path of the certificate file. Must be used in combination with '-key'. "+
+		"If not provided, fallback self-signed cert is used.")
+	key := flag.String("key", "", "Path of the private key file corresponding to '-cert'.")
+
 	flag.Parse()
+	dir := flag.Arg(0)
 
-	if *dir == "" {
-		fmt.Fprintln(os.Stderr, "valid directory required. see --help")
-		os.Exit(1)
-	}
-	if _, err := os.Stat(*dir); err != nil {
-		fmt.Fprintf(os.Stderr, "not a valid directory: %v\n", *dir)
+	if *cert == "" && *key != "" || *cert != "" && *key == "" {
+		fmt.Fprint(os.Stderr, "-cert and -key must be used in combination.\n\n")
+		flag.Usage()
 		os.Exit(1)
 	}
 
-	return *dir, fmt.Sprint(*port)
+	if dir == "" {
+		fmt.Fprint(os.Stderr, "valid directory required.\n\n")
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	ret, err := os.Stat(dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	} else if !ret.IsDir() {
+		fmt.Fprintf(os.Stderr, "%v: not a directory\n", dir)
+		os.Exit(1)
+	}
+
+	return params{dir, *port, *cert, *key}
 }
 
 func serve(srv *http.Server, done chan bool) {
@@ -81,23 +109,37 @@ func fileHandler(dir, pass string) http.HandlerFunc {
 	return http.HandlerFunc(handler)
 }
 
-func main() {
-	dir, port := getParams()
-	pass := randomPass()
-	log.Printf("password: %v", pass)
+func getCert(certfile, keyfile string) (cert tls.Certificate, err error) {
+	if certfile == "" {
+		if cert, err = getDummyCert(); err != nil {
+			err = fmt.Errorf("error loading dummy cert: %v", err)
+		}
+	} else {
+		if cert, err = tls.LoadX509KeyPair(certfile, keyfile); err != nil {
+			err = fmt.Errorf("error loading cert key pair: %v", err)
+		}
+	}
+	return
+}
 
-	cert, err := getDummyCert()
+func main() {
+	params := getParams()
+
+	cert, err := getCert(params.cert, params.key)
 	if err != nil {
 		log.Fatal(err)
 	}
 
+	pass := randomPass()
+	log.Printf("password: %v", pass)
+
 	favicon, err := getFaviconReader()
 	if err != nil {
-		log.Print(err)
+		log.Fatal(err)
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", fileHandler(dir, pass))
+	mux.Handle("/", fileHandler(params.dir, pass))
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		if favicon == nil {
 			log.Printf("%v %v 404", r.RemoteAddr, r.URL)
@@ -109,7 +151,7 @@ func main() {
 	})
 
 	srv := http.Server{
-		Addr:    ":" + port,
+		Addr:    fmt.Sprintf(":%v", params.port),
 		Handler: mux,
 		TLSConfig: &tls.Config{
 			Certificates: []tls.Certificate{cert},
