@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.3.1"
+const QUICKFILE_VERSION = "v0.4.0"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
@@ -151,7 +151,7 @@ func fileHandler(dir, pass string) http.HandlerFunc {
 	return http.HandlerFunc(handler)
 }
 
-func uploadHandler(pass string) http.HandlerFunc {
+func uploadHandler(dir, pass string) http.HandlerFunc {
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		usr, pw, ok := r.BasicAuth()
 
@@ -169,11 +169,12 @@ func uploadHandler(pass string) http.HandlerFunc {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.Write([]byte(UPLOAD_SITE_HTML))
 			} else if r.Method == http.MethodPost {
-				f, err := os.Create(r.FormValue("filename"))
+				f, err := os.Create(dir + "/" + r.FormValue("filename"))
 				if err != nil {
 					log.Println("could not create file:", err)
 					http.Error(w, "Failed to receive file", http.StatusInternalServerError)
 				} else {
+					defer f.Close()
 					n, err := io.Copy(f, r.Body)
 					if err != nil {
 						log.Println("error copying file:", err)
@@ -228,7 +229,7 @@ func main() {
 			http.ServeContent(w, r, "", time.Time{}, favicon)
 		}
 	})
-	mux.HandleFunc("/upload/", uploadHandler(pass))
+	mux.HandleFunc("/upload/", uploadHandler(params.dir, pass))
 
 	srv := http.Server{
 		Addr:    fmt.Sprintf(":%v", params.port),
