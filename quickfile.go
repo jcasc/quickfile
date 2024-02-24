@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -14,6 +15,36 @@ import (
 )
 
 const QUICKFILE_VERSION = "v0.2.2"
+
+const UPLOAD_SITE_HTML = `<!DOCTYPE html>
+<html>
+<title> Quickfile Upload </title>
+<body>
+Please use this upload form:
+<form method="post" enctype="multipart/form-data" onsubmit="submitForm(); return false;">
+  <input name="userfile" type="file" id="userfileField"> 
+  <button>Send</button>
+</form>
+<div id="progress"></div>
+<script>
+function submitForm() {
+	var formData = new FormData();
+	formData.append("userfile", document.getElementById("userfileField").files[0]);
+	var xhr = new XMLHttpRequest();
+	xhr.upload.onprogress = (event) => {
+		document.getElementById("progress").innerHTML = "Progress: " + Math.ceil(event.loaded/1024) + "MB";
+	};
+	xhr.onload = () => {
+		document.getElementById("progress").innerHTML = xhr.status;
+	}
+	xhr.open("POST", "");
+	xhr.send(formData);
+	
+}
+</script>
+</body>
+</html>
+`
 
 func randomPass() string {
 	const glyphs = "ABCDEFGHIJKLMNOPQRSTUVWXZYabcdefghijklmnopqrstuvwxyz0123456789-_$."
@@ -122,6 +153,38 @@ func fileHandler(dir, pass string) http.HandlerFunc {
 	return http.HandlerFunc(handler)
 }
 
+func uploadHandler(pass string) http.HandlerFunc {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		usr, pw, ok := r.BasicAuth()
+
+		if !(ok && pw == pass) {
+			if ok {
+				log.Printf("%v %v AUTH REJECT USER %v", r.RemoteAddr, r.URL, usr)
+			} else {
+				log.Printf("%v %v AUTH NOT OK", r.RemoteAddr, r.URL)
+			}
+			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		} else {
+			log.Printf("%v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.URL, usr)
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Write([]byte(UPLOAD_SITE_HTML))
+			} else if r.Method == http.MethodPost {
+
+				if f, _, err := r.FormFile("userfile"); err != nil {
+					log.Println("error parsing form: ", err)
+				} else if buf, err := io.ReadAll(f); err != nil {
+					log.Println("error reading from formFile", err)
+				} else {
+					log.Println(len(buf))
+				}
+			}
+		}
+	}
+	return http.HandlerFunc(handler)
+}
+
 func getCert(certfile, keyfile string) (cert tls.Certificate, err error) {
 	if certfile == "" {
 		if cert, err = getDummyCert(); err != nil {
@@ -152,7 +215,7 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/", fileHandler(params.dir, pass))
+	mux.Handle("/download/", http.StripPrefix("/download/", fileHandler(params.dir, pass)))
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		if favicon == nil {
 			log.Printf("%v %v 404", r.RemoteAddr, r.URL)
@@ -162,6 +225,7 @@ func main() {
 			http.ServeContent(w, r, "", time.Time{}, favicon)
 		}
 	})
+	mux.HandleFunc("/upload/", uploadHandler(pass))
 
 	srv := http.Server{
 		Addr:    fmt.Sprintf(":%v", params.port),
