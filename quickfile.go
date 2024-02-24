@@ -14,31 +14,30 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.3.0"
+const QUICKFILE_VERSION = "v0.3.1"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
-<title> Quickfile Upload </title>
+<title>Quickfile Upload</title>
 <body>
-Please use this upload form:
-<form method="post" onsubmit="submitForm(); return false;">
-  <input name="userfile" type="file" id="userfileField"> 
+<form method="post" id="userfileForm" onsubmit="submitForm(); return false;">
+  <input name="userfile" type="file" id="userfileField" required> 
   <button>Send</button>
 </form>
 <div id="progress"></div>
 <script>
 function submitForm() {
-	var formData = new FormData();
-	formData.append("userfile", document.getElementById("userfileField").files[0]);
+	const file = document.getElementById("userfileField").files[0];
+	document.getElementById("userfileForm").reset();
 	var xhr = new XMLHttpRequest();
 	xhr.upload.onprogress = (event) => {
-		document.getElementById("progress").innerHTML = "Progress: " + Math.ceil(event.loaded/1024) + "MB";
+		document.getElementById("progress").innerHTML = "Progress: " + Math.ceil(event.loaded/(1024*1024)) + "MB";
 	};
 	xhr.onload = () => {
-		document.getElementById("progress").innerHTML = xhr.status;
+		document.getElementById("progress").innerHTML = "Status: " + xhr.status;
 	}
-	xhr.open("POST", "/upload/?filename="+document.getElementById("userfileField").files[0].name);
-	xhr.send(document.getElementById("userfileField").files[0]);
+	xhr.open("POST", "/upload/?filename="+file.name);
+	xhr.send(file);
 }
 </script>
 </body>
