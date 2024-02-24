@@ -13,17 +13,24 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.2.1"
+const QUICKFILE_VERSION = "v0.2.2"
 
 func randomPass() string {
-	const glyphs = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$-"
-	const N = 32
-	buf := make([]byte, N)
-	if n, err := rand.Read(buf); err != nil || n != N {
-		log.Fatalf("RNG error: %v", err) // should never happen
-	}
-	for i := 0; i < N; i++ {
-		buf[i] = glyphs[buf[i]%64]
+	const glyphs = "ABCDEFGHIJKLMNOPQRSTUVWXZYabcdefghijklmnopqrstuvwxyz0123456789-_$."
+	const N = 24
+	cutoff := byte(255 - 256%len(glyphs))
+	rndbuf, buf := make([]byte, N), make([]byte, N)
+	for i, j := 0, N; i < N; j++ {
+		if j >= N {
+			if n, err := rand.Read(rndbuf); err != nil || n != N {
+				log.Fatalf("RNG error: %v", err) // should never happen
+			}
+			j = 0
+		}
+		if rndbuf[j] <= cutoff {
+			buf[i] = glyphs[int(rndbuf[j])%len(glyphs)]
+			i++
+		}
 	}
 	return string(buf)
 }
@@ -167,7 +174,7 @@ func main() {
 	sigint := make(chan os.Signal, 1)
 	signal.Notify(sigint, os.Interrupt)
 
-	join := make(chan bool, 1)
+	join := make(chan bool)
 	go serve(&srv, join)
 
 	select {
