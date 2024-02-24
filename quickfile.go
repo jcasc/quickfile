@@ -14,14 +14,14 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.2.2"
+const QUICKFILE_VERSION = "v0.3.0"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
 <title> Quickfile Upload </title>
 <body>
 Please use this upload form:
-<form method="post" enctype="multipart/form-data" onsubmit="submitForm(); return false;">
+<form method="post" onsubmit="submitForm(); return false;">
   <input name="userfile" type="file" id="userfileField"> 
   <button>Send</button>
 </form>
@@ -37,9 +37,8 @@ function submitForm() {
 	xhr.onload = () => {
 		document.getElementById("progress").innerHTML = xhr.status;
 	}
-	xhr.open("POST", "");
-	xhr.send(formData);
-	
+	xhr.open("POST", "/upload/?filename="+document.getElementById("userfileField").files[0].name);
+	xhr.send(document.getElementById("userfileField").files[0]);
 }
 </script>
 </body>
@@ -166,18 +165,23 @@ func uploadHandler(pass string) http.HandlerFunc {
 			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		} else {
-			log.Printf("%v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.URL, usr)
+			log.Printf("%v %v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.Method, r.URL, usr)
 			if r.Method == http.MethodGet {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				w.Write([]byte(UPLOAD_SITE_HTML))
 			} else if r.Method == http.MethodPost {
-
-				if f, _, err := r.FormFile("userfile"); err != nil {
-					log.Println("error parsing form: ", err)
-				} else if buf, err := io.ReadAll(f); err != nil {
-					log.Println("error reading from formFile", err)
+				f, err := os.Create(r.FormValue("filename"))
+				if err != nil {
+					log.Println("could not create file:", err)
+					http.Error(w, "Failed to receive file", http.StatusInternalServerError)
 				} else {
-					log.Println(len(buf))
+					n, err := io.Copy(f, r.Body)
+					if err != nil {
+						log.Println("error copying file:", err)
+						http.Error(w, "Failed to receive file", http.StatusInternalServerError)
+					} else {
+						log.Println("received file with size:", n)
+					}
 				}
 			}
 		}
