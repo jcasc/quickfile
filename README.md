@@ -8,6 +8,9 @@ starts the fileserver serving `path` using default settings.
 The server displays a random-generated password in the terminal, which is queried via Basic Auth.
 The user name provided by the client can be chosen freely but is logged.
 
+The files are served on endpoint /download/.
+A minimalist upload form is served on /upload/.
+
 ## Supported flags
 
 `-p 12345` sets the Port (42777 by default).
