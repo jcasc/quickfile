@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.6.0"
+const QUICKFILE_VERSION = "v0.6.1"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
@@ -169,37 +170,45 @@ func fileHandler(dir, pass, prefix string) http.Handler {
 	}), pass)
 }
 
+func readToFile(path string, body io.Reader) (int64, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return 0, fmt.Errorf("error creating file %v: %w", path, err)
+	}
+
+	n, err := io.Copy(f, body)
+	if err != nil {
+		err = fmt.Errorf("error copying into %v: %w", path, err)
+	}
+
+	if err_ := f.Close(); err_ != nil {
+		err = errors.Join(err, fmt.Errorf("error while closing %v: %w", path, err_))
+	}
+
+	return n, err
+}
+
 func uploadHandler(dir, pass string) http.Handler {
 	return authHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet { // GET
 
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if _, err := w.Write([]byte(UPLOAD_SITE_HTML)); err != nil {
-				log.Printf("%v %v %v %v > ERROR could not serve page: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), err)
+				log.Printf("%v %v %v %v > err serving page: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), err)
 			} else {
 				log.Printf("%v %v %v %v --> %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusOK)
 			}
 
 		} else if r.Method == http.MethodPut { // PUT
 
-			f, err := os.Create(dir + "/" + r.FormValue("filename"))
+			n, err := readToFile(dir+"/"+r.FormValue("filename"), r.Body)
 			if err != nil {
-				log.Printf("%v %v %v %v --> %v failed to create file: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusInternalServerError, err)
-				http.Error(w, "failed to create file", http.StatusInternalServerError)
-				return
-			}
-			defer f.Close()
-
-			log.Printf("%v %v %v %v > initiating copy", r.RemoteAddr, r.Method, r.URL, getUser(r))
-			n, err := io.Copy(f, r.Body)
-			if err != nil {
-				log.Printf("%v %v %v %v --> %v failed to copy file: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusInternalServerError, err)
-				http.Error(w, "failed to copy file", http.StatusInternalServerError)
-				return
+				log.Printf("%v %v %v %v --> %v %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusInternalServerError, err)
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			} else {
+				log.Printf("%v %v %v %v --> %v wrote %v bytes", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusOK, n)
 			}
 
-			// success
-			log.Printf("%v %v %v %v --> %v wrote %v bytes", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusOK, n)
 		}
 	}), pass)
 }
@@ -207,11 +216,11 @@ func uploadHandler(dir, pass string) http.Handler {
 func getCert(certfile, keyfile string) (cert tls.Certificate, err error) {
 	if certfile == "" {
 		if cert, err = getDummyCert(); err != nil {
-			err = fmt.Errorf("error loading dummy cert: %v", err)
+			err = fmt.Errorf("error loading dummy cert: %w", err)
 		}
 	} else {
 		if cert, err = tls.LoadX509KeyPair(certfile, keyfile); err != nil {
-			err = fmt.Errorf("error loading cert key pair: %v", err)
+			err = fmt.Errorf("error loading cert key pair: %w", err)
 		}
 	}
 	return
