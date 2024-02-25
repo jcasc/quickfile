@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.6.1"
+const QUICKFILE_VERSION = "v0.6.2"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
@@ -200,6 +200,11 @@ func uploadHandler(dir, pass string) http.Handler {
 			}
 
 		} else if r.Method == http.MethodPut { // PUT
+			if r.FormValue("filename") == "" {
+				log.Printf("%v %v %v %v --> %v no filename", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusUnprocessableEntity)
+				http.Error(w, "no filename provided", http.StatusUnprocessableEntity)
+				return
+			}
 
 			n, err := readToFile(dir+"/"+r.FormValue("filename"), r.Body)
 			if err != nil {
