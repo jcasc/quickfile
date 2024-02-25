@@ -14,30 +14,36 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.5.0"
+const QUICKFILE_VERSION = "v0.6.0"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
 <title>Quickfile Upload</title>
 <body>
 <form method="post" id="userfileForm" onsubmit="submitForm(); return false;">
-  <input name="userfile" type="file" id="userfileField" required> 
-  <button>Send</button>
+  <input name="userfile" type="file" id="userfileField" required multiple> 
+  <button id="userfileButton">Send</button>
 </form>
 <div id="progress"></div>
 <script>
 function submitForm() {
-	const file = document.getElementById("userfileField").files[0];
-	document.getElementById("userfileForm").reset();
-	var xhr = new XMLHttpRequest();
-	xhr.upload.onprogress = (event) => {
-		document.getElementById("progress").innerHTML = "Progress: " + Math.ceil(event.loaded/(1024*1024)) + "MB";
-	};
-	xhr.onload = () => {
-		document.getElementById("progress").innerHTML = "Status: " + xhr.status;
+	const files = document.getElementById("userfileField").files;
+	document.getElementById("userfileButton").disabled = true;
+	document.getElementById("userfileField").disabled = true;
+	for (let i = 0; i < files.length; i++) {
+		const prog = document.createElement("div");
+		prog.id = "progress"+i
+		document.getElementById("progress").append(prog)
+		const xhr = new XMLHttpRequest();
+		xhr.upload.onprogress = (event) => {
+			document.getElementById("progress"+i).innerHTML = files[i].name + ": " + Math.ceil(event.loaded/(1024)) + " KB";
+		};
+		xhr.onload = () => {
+			document.getElementById("progress"+i).innerHTML = files[i].name + ": " + xhr.status;
+		}
+		xhr.open("PUT", "/upload/?filename="+files[i].name);
+		xhr.send(files[i]);
 	}
-	xhr.open("PUT", "/upload/?filename="+file.name);
-	xhr.send(file);
 }
 </script>
 </body>
