@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.4.0"
+const QUICKFILE_VERSION = "v0.5.0"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
@@ -36,7 +36,7 @@ function submitForm() {
 	xhr.onload = () => {
 		document.getElementById("progress").innerHTML = "Status: " + xhr.status;
 	}
-	xhr.open("POST", "/upload/?filename="+file.name);
+	xhr.open("PUT", "/upload/?filename="+file.name);
 	xhr.send(file);
 }
 </script>
@@ -127,66 +127,75 @@ func shutdown(srv *http.Server) {
 	}
 }
 
-func fileHandler(dir, pass string) http.HandlerFunc {
-	fhandler := http.FileServer(http.Dir(dir))
-	log.Printf("served directory: %v", dir)
+var req_usr struct{}
 
-	// objects are poor man's closures
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		usr, pw, ok := r.BasicAuth()
-
-		if !(ok && pw == pass) {
-			if ok {
-				log.Printf("%v %v AUTH REJECT USER %v", r.RemoteAddr, r.URL, usr)
-			} else {
-				log.Printf("%v %v AUTH NOT OK", r.RemoteAddr, r.URL)
-			}
-			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-		} else {
-			log.Printf("%v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.URL, usr)
-			fhandler.ServeHTTP(w, r)
-		}
-	}
-	return http.HandlerFunc(handler)
+func withUser(r *http.Request, usr string) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), req_usr, usr))
 }
 
-func uploadHandler(dir, pass string) http.HandlerFunc {
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		usr, pw, ok := r.BasicAuth()
+func getUser(r *http.Request) string {
+	return r.Context().Value(req_usr).(string)
+}
 
+func authHandler(handler http.Handler, pass string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		usr, pw, ok := r.BasicAuth()
 		if !(ok && pw == pass) {
 			if ok {
-				log.Printf("%v %v AUTH REJECT USER %v", r.RemoteAddr, r.URL, usr)
+				log.Printf("%v %v %v %v AUTH REJECT USER --> %v", r.RemoteAddr, r.Method, r.URL, usr, http.StatusUnauthorized)
 			} else {
-				log.Printf("%v %v AUTH NOT OK", r.RemoteAddr, r.URL)
+				log.Printf("%v %v %v AUTH NOT OK --> %v", r.RemoteAddr, r.Method, r.URL, http.StatusUnauthorized)
 			}
 			w.Header().Set("WWW-Authenticate", `Basic realm="restricted", charset="UTF-8"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		} else {
-			log.Printf("%v %v %v AUTH ACCEPT USER %v", r.RemoteAddr, r.Method, r.URL, usr)
-			if r.Method == http.MethodGet {
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
-				w.Write([]byte(UPLOAD_SITE_HTML))
-			} else if r.Method == http.MethodPost {
-				f, err := os.Create(dir + "/" + r.FormValue("filename"))
-				if err != nil {
-					log.Println("could not create file:", err)
-					http.Error(w, "Failed to receive file", http.StatusInternalServerError)
-				} else {
-					defer f.Close()
-					n, err := io.Copy(f, r.Body)
-					if err != nil {
-						log.Println("error copying file:", err)
-						http.Error(w, "Failed to receive file", http.StatusInternalServerError)
-					} else {
-						log.Println("received file with size:", n)
-					}
-				}
-			}
+			handler.ServeHTTP(w, withUser(r, usr))
 		}
-	}
-	return http.HandlerFunc(handler)
+	})
+}
+
+func fileHandler(dir, pass, prefix string) http.Handler {
+	log.Printf("served directory: %v", dir)
+	fhandler := http.StripPrefix(prefix, http.FileServer(http.Dir(dir)))
+	return authHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%v %v %v %v > delegating to FilServer", r.RemoteAddr, r.Method, r.URL, getUser(r))
+		fhandler.ServeHTTP(w, r)
+	}), pass)
+}
+
+func uploadHandler(dir, pass string) http.Handler {
+	return authHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet { // GET
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if _, err := w.Write([]byte(UPLOAD_SITE_HTML)); err != nil {
+				log.Printf("%v %v %v %v > ERROR could not serve page: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), err)
+			} else {
+				log.Printf("%v %v %v %v --> %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusOK)
+			}
+
+		} else if r.Method == http.MethodPut { // PUT
+
+			f, err := os.Create(dir + "/" + r.FormValue("filename"))
+			if err != nil {
+				log.Printf("%v %v %v %v --> %v failed to create file: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusInternalServerError, err)
+				http.Error(w, "failed to create file", http.StatusInternalServerError)
+				return
+			}
+			defer f.Close()
+
+			log.Printf("%v %v %v %v > initiating copy", r.RemoteAddr, r.Method, r.URL, getUser(r))
+			n, err := io.Copy(f, r.Body)
+			if err != nil {
+				log.Printf("%v %v %v %v --> %v failed to copy file: %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusInternalServerError, err)
+				http.Error(w, "failed to copy file", http.StatusInternalServerError)
+				return
+			}
+
+			// success
+			log.Printf("%v %v %v %v --> %v wrote %v bytes", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusOK, n)
+		}
+	}), pass)
 }
 
 func getCert(certfile, keyfile string) (cert tls.Certificate, err error) {
@@ -219,7 +228,8 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/download/", http.StripPrefix("/download/", fileHandler(params.dir, pass)))
+	mux.Handle("/download/", fileHandler(params.dir, pass, "/download/"))
+	mux.Handle("/upload/", uploadHandler(params.dir, pass))
 	mux.HandleFunc("/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		if favicon == nil {
 			log.Printf("%v %v 404", r.RemoteAddr, r.URL)
@@ -229,7 +239,6 @@ func main() {
 			http.ServeContent(w, r, "", time.Time{}, favicon)
 		}
 	})
-	mux.HandleFunc("/upload/", uploadHandler(params.dir, pass))
 
 	srv := http.Server{
 		Addr:    fmt.Sprintf(":%v", params.port),
