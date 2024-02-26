@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-const QUICKFILE_VERSION = "v0.6.2"
+const QUICKFILE_VERSION = "v0.6.3"
 
 const UPLOAD_SITE_HTML = `<!DOCTYPE html>
 <html>
@@ -170,19 +170,32 @@ func fileHandler(dir, pass, prefix string) http.Handler {
 	}), pass)
 }
 
-func readToFile(path string, body io.Reader) (int64, error) {
-	f, err := os.Create(path)
+func readToFile(dir, filename string, body io.Reader) (int64, error) {
+	f, err := os.CreateTemp("", "")
 	if err != nil {
-		return 0, fmt.Errorf("error creating file %v: %w", path, err)
+		return 0, fmt.Errorf("error creating temp file: %w", err)
 	}
+	fname := f.Name()
 
 	n, err := io.Copy(f, body)
 	if err != nil {
-		err = fmt.Errorf("error copying into %v: %w", path, err)
+		err = fmt.Errorf("error copying into tmp file: %w", err)
 	}
 
 	if err_ := f.Close(); err_ != nil {
-		err = errors.Join(err, fmt.Errorf("error while closing %v: %w", path, err_))
+		err = errors.Join(err, fmt.Errorf("error while closing tmp file: %w", err_))
+	}
+
+	if err == nil {
+		if err = os.Rename(fname, dir+"/"+filename); err != nil {
+			err = fmt.Errorf("error while renaming tmp file: %w", err)
+		}
+	}
+
+	if err != nil {
+		if err_ := os.Remove(fname); err_ != nil {
+			err = errors.Join(err, fmt.Errorf("error removing tmp file: %w", err_))
+		}
 	}
 
 	return n, err
@@ -206,7 +219,7 @@ func uploadHandler(dir, pass string) http.Handler {
 				return
 			}
 
-			n, err := readToFile(dir+"/"+r.FormValue("filename"), r.Body)
+			n, err := readToFile(dir, r.FormValue("filename"), r.Body)
 			if err != nil {
 				log.Printf("%v %v %v %v --> %v %v", r.RemoteAddr, r.Method, r.URL, getUser(r), http.StatusInternalServerError, err)
 				http.Error(w, err.Error(), http.StatusInternalServerError)
